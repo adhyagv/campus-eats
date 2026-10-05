@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'add_food_screen.dart';
@@ -18,12 +20,27 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
+  Timer? _refreshTimer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAdminOrders();
     });
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted &&
+          ApiService.activeRole == 'admin' &&
+          !context.read<OrderProvider>().isLoading) {
+        context.read<OrderProvider>().loadOrders();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAdminOrders() async {
@@ -285,7 +302,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         : provider.orders
                               .where(
                                 (order) =>
-                                    provider.getCafeteria(order) == cafeteria,
+                                    provider.matchesCafeteria(
+                                      order,
+                                      name: cafeteria,
+                                      id: ApiService.adminCafeteriaId,
+                                    ),
                               )
                               .toList();
                     int count(String status) => orders

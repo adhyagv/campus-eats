@@ -120,6 +120,27 @@ test("unknown SRN cannot register", async () => {
   );
 });
 
+test("registration reports when Firebase Authentication is not configured", async () => {
+  const service = loadAuthService({
+    registryStudent: activeRegistryStudent,
+    createUser: async () => {
+      const error = new Error("Firebase Authentication is not configured");
+      error.code = "auth/configuration-not-found";
+      throw error;
+    },
+  });
+
+  await assert.rejects(
+    service.registerUser({
+      studentId: activeRegistryStudent.studentId,
+      password: "password",
+    }),
+    (error) =>
+      error.statusCode === 503 &&
+      error.message === "Firebase Authentication is not configured for this project"
+  );
+});
+
 for (const status of ["GRADUATED", "SUSPENDED"]) {
   test(`${status} registry student cannot register`, async () => {
     const service = loadAuthService({
@@ -186,6 +207,77 @@ test("active registry student can log in", async () => {
     assert.equal(result.name, "Official Student");
     assert.equal(result.program, "BCA");
     assert.equal(result.email, undefined);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.FIREBASE_WEB_API_KEY;
+    } else {
+      process.env.FIREBASE_WEB_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("login reports when Firebase Authentication is not configured", async () => {
+  const service = loadAuthService({
+    registryStudent: activeRegistryStudent,
+  });
+  const originalApiKey = process.env.FIREBASE_WEB_API_KEY;
+  const originalFetch = global.fetch;
+  process.env.FIREBASE_WEB_API_KEY = "test-key";
+  global.fetch = async () => ({
+    ok: false,
+    json: async () => ({ error: { message: "CONFIGURATION_NOT_FOUND" } }),
+  });
+
+  try {
+    await assert.rejects(
+      service.loginUser({
+        studentId: activeRegistryStudent.studentId,
+        password: "password",
+      }),
+      (error) =>
+        error.statusCode === 503 &&
+        error.message === "Firebase Authentication is not configured for this project"
+    );
+  } finally {
+    global.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.FIREBASE_WEB_API_KEY;
+    } else {
+      process.env.FIREBASE_WEB_API_KEY = originalApiKey;
+    }
+  }
+});
+
+test("student login normalizes a quoted Firebase Web API key with a trailing comma", async () => {
+  const service = loadAuthService({
+    registryStudent: activeRegistryStudent,
+  });
+  const originalApiKey = process.env.FIREBASE_WEB_API_KEY;
+  const originalFetch = global.fetch;
+  let requestUrl;
+  process.env.FIREBASE_WEB_API_KEY = '"test-key",';
+  global.fetch = async (url) => {
+    requestUrl = new URL(url);
+    return {
+      ok: false,
+      json: async () => ({
+        error: { message: "API key not valid. Please pass a valid API key." },
+      }),
+    };
+  };
+
+  try {
+    await assert.rejects(
+      service.loginUser({
+        studentId: activeRegistryStudent.studentId,
+        password: "password",
+      }),
+      (error) =>
+        error.statusCode === 503 &&
+        error.message === "Firebase Web API key is invalid"
+    );
+    assert.equal(requestUrl.searchParams.get("key"), "test-key");
   } finally {
     global.fetch = originalFetch;
     if (originalApiKey === undefined) {

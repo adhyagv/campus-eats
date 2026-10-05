@@ -70,6 +70,32 @@ void main() {
       expect(cart.hasDifferentCafeteria('Non-Veg Cafeteria'), isTrue);
     });
 
+    test('cafeteria aliases do not bypass cart isolation', () {
+      final cart = CartProvider();
+      cart.addItem(CartItem(
+        name: 'Veg Burger',
+        image: '',
+        price: 80,
+        cafeteria: 'PESU Cafe',
+      ));
+
+      expect(cart.currentCafeteria, 'Cafe PESU');
+      expect(cart.hasDifferentCafeteria(' Cafe PESU '), isFalse);
+      expect(cart.hasDifferentCafeteria('Non-Veg Cafeteria'), isTrue);
+      expect(
+        cart.addItem(
+          CartItem(
+            name: 'Chicken Biryani',
+            image: '',
+            price: 120,
+            cafeteria: 'Nonveg',
+          ),
+        ),
+        isFalse,
+      );
+      expect(cart.items, hasLength(1));
+    });
+
     test('4. clearAndAddItem clears previous cafeteria and sets new item', () {
       final cart = CartProvider();
       cart.addItem(CartItem(

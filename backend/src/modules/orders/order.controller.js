@@ -33,7 +33,10 @@ async function getAllOrders(req, res, next) {
     const cafeteria = isStaff
       ? req.user?.cafeteria
       : (req.query?.cafeteria || req.user?.cafeteria);
-    const orders = await orderService.getAllOrders(cafeteria);
+    const cafeteriaId = isStaff
+      ? req.user?.cafeteriaId
+      : req.query?.cafeteriaId || req.user?.cafeteriaId;
+    const orders = await orderService.getAllOrders(cafeteria, cafeteriaId);
 
     res.status(200).json({
       status: "success",
@@ -80,7 +83,8 @@ async function updateOrderStatus(req, res, next) {
   try {
     const order = await orderService.updateOrderStatus(
       req.params.id,
-      req.body.status
+      req.body.status,
+      req.user
     );
 
     res.status(200).json({

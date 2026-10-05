@@ -57,6 +57,31 @@ class OrderModel {
 
   bool get canBeRated => isCollected && !isCancelled;
 
+  static String _normalizeStatus(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'pending':
+      case 'new':
+        return 'Pending';
+      case 'confirmed':
+        return 'Confirmed';
+      case 'preparing':
+        return 'Preparing';
+      case 'ready':
+      case 'ready for pickup':
+      case 'ready_for_pickup':
+        return 'Ready';
+      case 'completed':
+      case 'picked up':
+      case 'picked_up':
+        return 'Completed';
+      case 'cancelled':
+      case 'canceled':
+        return 'Cancelled';
+      default:
+        return value;
+    }
+  }
+
   factory OrderModel.fromMap(Map<String, dynamic> map) {
     final rawItems = map['items'];
     Map<String, dynamic> firstItem = {};
@@ -115,7 +140,7 @@ class OrderModel {
       gst: parsedGst,
       pickupFee: parsedPickupFee,
       date: dateValue.toString(),
-      status: statusValue.toString(),
+      status: _normalizeStatus(statusValue.toString()),
       studentName: rawCustomerName,
       studentEmail: map['studentEmail']?.toString() ?? '',
       paymentStatus: map['paymentStatus']?.toString() ?? 'Paid',

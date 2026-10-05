@@ -31,10 +31,10 @@ async function getRecommendations(userId, options = {}) {
   const menuIds = menuItems.map((item) => item._id);
 
   const [userOrders, userReviews, globalPopularity, ratingSummary] = await Promise.all([
-    db.collection("orders").find({ userId, status: { $ne: "CANCELLED" } }).toArray(),
+    db.collection("orders").find({ userId, status: { $nin: ["CANCELLED", "Cancelled"] } }).toArray(),
     db.collection("reviews").find({ userId }).toArray(),
     db.collection("orders").aggregate([
-      { $match: { status: { $ne: "CANCELLED" } } },
+      { $match: { status: { $nin: ["CANCELLED", "Cancelled"] } } },
       { $unwind: "$items" },
       { $group: { _id: "$items.menuItemId", totalQty: { $sum: "$items.quantity" } } },
     ]).toArray(),

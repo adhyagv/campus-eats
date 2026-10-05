@@ -705,9 +705,90 @@ test("17. Cashfree create-order does not expose CASHFREE_CLIENT_SECRET in respon
   );
 });
 
+test("Cashfree payment snapshots use the menu's canonical cafeteria identity", async () => {
+  const itemId = new ObjectId();
+  const { paymentService, paymentsMap } = setupTestEnvironment({
+    cashfreeClientId: "TEST_CF_CLIENT_ID",
+    cashfreeClientSecret: "TEST_CF_SECRET",
+    cartItems: [
+      { menuItemId: itemId, quantity: 1, cafeteria: "PESU Cafe" },
+    ],
+    menuItems: [
+      {
+        _id: itemId,
+        name: "Dosa",
+        price: 60,
+        cafeteria: "Cafe PESU",
+        available: true,
+      },
+    ],
+  });
+
+  paymentService.setCustomFetch(async (url, opts) => {
+    const payload = JSON.parse(opts.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cf_order_id: "cf_pesu_order",
+        order_id: payload.order_id,
+        payment_session_id: "session_pesu",
+      }),
+    };
+  });
+
+  await paymentService.createPaymentOrder("student-123", "", "PESU Cafe");
+  const payment = [...paymentsMap.values()][0];
+
+  assert.equal(payment.cafeteria, "Cafe PESU");
+  assert.equal(payment.cafeteriaId, "pesucafe");
+  assert.equal(payment.itemsSnapshot[0].cafeteria, "Cafe PESU");
+  assert.equal(payment.itemsSnapshot[0].cafeteriaId, "pesucafe");
+});
+
+test("payment creation rejects a cart containing multiple cafeterias", async () => {
+  const pesuItemId = new ObjectId();
+  const bengaluruItemId = new ObjectId();
+  const { paymentService } = setupTestEnvironment({
+    cartItems: [
+      { menuItemId: pesuItemId, quantity: 1 },
+      { menuItemId: bengaluruItemId, quantity: 1 },
+    ],
+    menuItems: [
+      {
+        _id: pesuItemId,
+        name: "Dosa",
+        price: 60,
+        cafeteria: "Cafe PESU",
+        available: true,
+      },
+      {
+        _id: bengaluruItemId,
+        name: "Idli",
+        price: 30,
+        cafeteria: "Bengaluru Cafe",
+        available: true,
+      },
+    ],
+  });
+
+  await assert.rejects(
+    paymentService.createPaymentOrder("student-123"),
+    (error) =>
+      error.statusCode === 400 && error.message.includes("one cafeteria")
+  );
+});
+
 test("18. Cashfree payment verification checks PAID status, creates order and clears cart", async () => {
   const orderId = "order_cf_verify_test";
   const { paymentService, ordersMap, paymentsMap, userCart } = setupTestEnvironment({
+    user: {
+      uid: "student-123",
+      role: "Student",
+      status: "ACTIVE",
+      studentId: "PES1UG24CA003",
+      email: "student@example.test",
+    },
     cashfreeClientId: "TEST_CF_CLIENT_ID",
     cashfreeClientSecret: "TEST_CF_SECRET",
     cartItems: [{ menuItemId: new ObjectId(), quantity: 1 }],
@@ -721,8 +802,16 @@ test("18. Cashfree payment verification checks PAID status, creates order and cl
         amountPaise: 15000,
         currency: "INR",
         status: "CREATED",
-        itemsSnapshot: [{ name: "Biryani", price: 150, quantity: 1, subtotal: 150 }],
-        cafeteria: "Bengaluru Cafe",
+        itemsSnapshot: [
+          {
+            name: "Biryani",
+            price: 150,
+            quantity: 1,
+            subtotal: 150,
+            cafeteria: "PESU Cafe",
+          },
+        ],
+        cafeteria: "PESU Cafe",
       },
     ],
   });
@@ -748,8 +837,14 @@ test("18. Cashfree payment verification checks PAID status, creates order and cl
 
   assert.ok(result.order);
   assert.equal(result.order.userId, "student-123");
+  assert.equal(result.order.studentId, "PES1UG24CA003");
+  assert.equal(result.order.studentEmail, "student@example.test");
   assert.equal(result.order.paymentStatus, "Paid");
   assert.equal(result.order.cashfreeOrderId, orderId);
+  assert.equal(result.order.cafeteria, "Cafe PESU");
+  assert.equal(result.order.cafeteriaId, "pesucafe");
+  assert.equal(result.order.items[0].cafeteria, "Cafe PESU");
+  assert.equal(result.order.items[0].cafeteriaId, "pesucafe");
   assert.equal(ordersMap.size, 1);
   assert.equal(userCart.items.length, 0);
 
@@ -972,4 +1067,3 @@ test("23. Regression: non-empty cart with client items (e.g. Masala Dosa, ₹60)
   assert.equal(userCart.items[0].name, "Masala Dosa");
   assert.equal(userCart.items[0].quantity, 1);
 });
-

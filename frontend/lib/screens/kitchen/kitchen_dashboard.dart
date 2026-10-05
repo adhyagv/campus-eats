@@ -33,9 +33,8 @@ class _KitchenDashboardState extends State<KitchenDashboard> {
 
   Future<void> _loadAuthenticatedOrders() async {
     final hasKitchen = await ApiService.restoreKitchenSession();
-    final hasAdmin = await ApiService.restoreAdminSession();
     if (!mounted) return;
-    if (!hasKitchen && !hasAdmin) {
+    if (!hasKitchen) {
       if (ApiService.demoMode &&
           ApiService.kitchenToken == null &&
           ApiService.adminToken == null) {

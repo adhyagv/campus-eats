@@ -12,6 +12,9 @@ const config = require("../backend/src/config/env");
 const { ROLES } = require("../backend/src/common/constants/roles");
 const { ORDER_STATUS } = require("../backend/src/common/constants/orderStatus");
 const {
+  resolveCafeteria,
+} = require("../backend/src/common/constants/cafeteria");
+const {
   PAYMENT_STATUS,
   PAYMENT_GATEWAY,
 } = require("../backend/src/common/constants/paymentStatus");
@@ -199,6 +202,13 @@ async function calculateCartTotal(userId, cafeteria = "", directItems = null) {
 
       const itemPrice = Number(menuItem.price);
       const subtotal = itemPrice * quantity;
+      const resolvedCafeteria = resolveCafeteria(
+        menuItem.cafeteria ||
+          cartItem.cafeteria ||
+          cafeteria ||
+          "Bengaluru Cafe",
+        menuItem.cafeteriaId || cartItem.cafeteriaId
+      );
 
       orderItems.push({
         menuItemId: menuItem._id,
@@ -206,13 +216,17 @@ async function calculateCartTotal(userId, cafeteria = "", directItems = null) {
         price: itemPrice,
         quantity,
         subtotal,
-        cafeteria: menuItem.cafeteria || cartItem.cafeteria || cafeteria || "Bengaluru Cafe",
+        cafeteria: resolvedCafeteria.name,
+        cafeteriaId: resolvedCafeteria.id,
       });
 
       total += subtotal;
     } else if (cartItem.name && (Number(cartItem.price) > 0 || cartItem.price === 0)) {
       const itemPrice = Number(cartItem.price);
       const subtotal = itemPrice * quantity;
+      const resolvedCafeteria = resolveCafeteria(
+        cartItem.cafeteria || cafeteria || "Bengaluru Cafe"
+      );
 
       orderItems.push({
         menuItemId: rawId ? String(rawId) : `item_${cartItem.name}`,
@@ -220,7 +234,8 @@ async function calculateCartTotal(userId, cafeteria = "", directItems = null) {
         price: itemPrice,
         quantity,
         subtotal,
-        cafeteria: cartItem.cafeteria || cafeteria || "Bengaluru Cafe",
+        cafeteria: resolvedCafeteria.name,
+        cafeteriaId: resolvedCafeteria.id,
       });
 
       total += subtotal;
@@ -229,6 +244,13 @@ async function calculateCartTotal(userId, cafeteria = "", directItems = null) {
       error.statusCode = 400;
       throw error;
     }
+  }
+
+  const cafeteriaIds = new Set(orderItems.map((item) => item.cafeteriaId));
+  if (cafeteriaIds.size > 1) {
+    const error = new Error("All items in an order must belong to one cafeteria");
+    error.statusCode = 400;
+    throw error;
   }
 
   const GST_FLAT_AMOUNT = 3;
@@ -341,7 +363,7 @@ async function createPaymentOrder(
       order_meta: {
         return_url: "https://merchants.cashfree.com/simulate?order_id={order_id}",
       },
-      order_note: notes || `CampusEATS Order - ${cafeteria || orderItems[0]?.cafeteria || "Bengaluru Cafe"}`,
+      order_note: notes || `CampusEATS Order - ${orderItems[0]?.cafeteria || "Bengaluru Cafe"}`,
     };
 
     const fetchFn = getFetch();
@@ -392,7 +414,8 @@ async function createPaymentOrder(
       campusEatsOrderId: null,
       notes: notes || "",
       itemsSnapshot: orderItems,
-      cafeteria: cafeteria || orderItems[0]?.cafeteria || "Bengaluru Cafe",
+      cafeteria: orderItems[0]?.cafeteria || "Bengaluru Cafe",
+      cafeteriaId: orderItems[0]?.cafeteriaId || "bengaluru",
       orderType: schedule.orderType,
       scheduledPickupAt: schedule.scheduledPickupAt,
       pickupWindowEndAt: schedule.pickupWindowEndAt,
@@ -441,7 +464,8 @@ async function createPaymentOrder(
       receipt: receiptId,
       notes: {
         userId,
-        cafeteria: cafeteria || orderItems[0]?.cafeteria || "Bengaluru Cafe",
+        cafeteria: orderItems[0]?.cafeteria || "Bengaluru Cafe",
+        cafeteriaId: orderItems[0]?.cafeteriaId || "bengaluru",
       },
     });
 
@@ -630,9 +654,26 @@ async function verifyPayment(userId, payload) {
     const gst = paymentRecord.gst !== undefined ? paymentRecord.gst : 3;
     const pickupFee = paymentRecord.pickupFee !== undefined ? paymentRecord.pickupFee : 0;
     const totalAmount = paymentRecord.amount !== undefined ? paymentRecord.amount : (subtotal + gst + pickupFee);
+    const orderItems = (paymentRecord.itemsSnapshot || []).map((item) => {
+      const resolvedCafeteria = resolveCafeteria(
+        item.cafeteria || paymentRecord.cafeteria || "Bengaluru Cafe",
+        item.cafeteriaId || paymentRecord.cafeteriaId
+      );
+      return {
+        ...item,
+        cafeteria: resolvedCafeteria.name,
+        cafeteriaId: resolvedCafeteria.id,
+      };
+    });
+    const orderCafeteria = resolveCafeteria(
+      orderItems[0]?.cafeteria || paymentRecord.cafeteria || "Bengaluru Cafe",
+      orderItems[0]?.cafeteriaId || paymentRecord.cafeteriaId
+    );
 
     const orderDoc = {
       userId,
+      studentId: user.studentId || user.rollNumber || null,
+      studentEmail: user.email || null,
       userRole: user.role,
       userType: user.role === ROLES.FACULTY ? "Faculty" : "Student",
       customerType: user.role === ROLES.FACULTY ? "Faculty" : "Student",
@@ -650,7 +691,7 @@ async function verifyPayment(userId, payload) {
         user.rollNumber ||
         user.studentId ||
         (user.role === ROLES.FACULTY ? "Faculty" : "Student"),
-      items: paymentRecord.itemsSnapshot,
+      items: orderItems,
       subtotal,
       itemsTotal: subtotal,
       gst,
@@ -664,7 +705,8 @@ async function verifyPayment(userId, payload) {
       cashfreeOrderId: targetCashfreeId,
       cfOrderId: cfOrderData.cf_order_id,
       notes: paymentRecord.notes || "",
-      cafeteria: paymentRecord.cafeteria || "Bengaluru Cafe",
+      cafeteria: orderCafeteria.name,
+      cafeteriaId: orderCafeteria.id,
       orderType: paymentRecord.orderType || ORDER_TYPE.ASAP,
       scheduledPickupAt: paymentRecord.scheduledPickupAt || null,
       pickupWindowEndAt: paymentRecord.pickupWindowEndAt || null,
@@ -845,9 +887,26 @@ async function verifyPayment(userId, payload) {
   const gst = paymentRecord.gst !== undefined ? paymentRecord.gst : 3;
   const pickupFee = paymentRecord.pickupFee !== undefined ? paymentRecord.pickupFee : 0;
   const totalAmount = paymentRecord.amount !== undefined ? paymentRecord.amount : (subtotal + gst + pickupFee);
+  const orderItems = (paymentRecord.itemsSnapshot || []).map((item) => {
+    const resolvedCafeteria = resolveCafeteria(
+      item.cafeteria || paymentRecord.cafeteria || "Bengaluru Cafe",
+      item.cafeteriaId || paymentRecord.cafeteriaId
+    );
+    return {
+      ...item,
+      cafeteria: resolvedCafeteria.name,
+      cafeteriaId: resolvedCafeteria.id,
+    };
+  });
+  const orderCafeteria = resolveCafeteria(
+    orderItems[0]?.cafeteria || paymentRecord.cafeteria || "Bengaluru Cafe",
+    orderItems[0]?.cafeteriaId || paymentRecord.cafeteriaId
+  );
 
   const orderDoc = {
     userId,
+    studentId: user.studentId || user.rollNumber || null,
+    studentEmail: user.email || null,
     userRole: user.role,
     userType: user.role === ROLES.FACULTY ? "Faculty" : "Student",
     customerType: user.role === ROLES.FACULTY ? "Faculty" : "Student",
@@ -865,7 +924,7 @@ async function verifyPayment(userId, payload) {
       user.rollNumber ||
       user.studentId ||
       (user.role === ROLES.FACULTY ? "Faculty" : "Student"),
-    items: paymentRecord.itemsSnapshot,
+    items: orderItems,
     subtotal,
     itemsTotal: subtotal,
     gst,
@@ -879,7 +938,8 @@ async function verifyPayment(userId, payload) {
     razorpayPaymentId,
     razorpayOrderId: targetRazorpayOrderId,
     notes: paymentRecord.notes || "",
-    cafeteria: paymentRecord.cafeteria || "Bengaluru Cafe",
+    cafeteria: orderCafeteria.name,
+    cafeteriaId: orderCafeteria.id,
     orderType: paymentRecord.orderType || ORDER_TYPE.ASAP,
     scheduledPickupAt: paymentRecord.scheduledPickupAt || null,
     pickupWindowEndAt: paymentRecord.pickupWindowEndAt || null,

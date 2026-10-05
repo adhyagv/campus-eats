@@ -2,6 +2,7 @@ const { ObjectId } = require("mongodb");
 const { getDb } = require("../../config/mongodb");
 const {
   ORDER_STATUS,
+  normalizeOrderStatus,
   validateTransition,
 } = require("./orderStateMachine");
 
@@ -18,6 +19,10 @@ const {
   ORDER_TYPE,
   PICKUP_STATUS,
 } = require("../../common/constants/orderSchedule");
+const {
+  getCafeteriaAliases,
+  resolveCafeteria,
+} = require("../../common/constants/cafeteria");
 
 const ORDERS_COLLECTION = "orders";
 const CARTS_COLLECTION = "carts";
@@ -244,21 +249,32 @@ async function getMyOrders(userId) {
     .toArray();
 }
 
-async function getAllOrders(cafeteria = "") {
+async function getAllOrders(cafeteria = "", cafeteriaId = "") {
   const query = {};
-  if (cafeteria && typeof cafeteria === "string" && cafeteria.trim()) {
-    const trimmed = cafeteria.trim();
+  const hasCafeteria =
+    typeof cafeteria === "string" && cafeteria.trim().length > 0;
+  if (hasCafeteria) {
+    const resolved = resolveCafeteria(cafeteria, cafeteriaId);
+    const aliases = getCafeteriaAliases(cafeteria, cafeteriaId);
+    const names = aliases.map((name) => new RegExp(`^${escapeRegex(name)}\\s*$`, "i"));
     query.$or = [
-      { cafeteria: trimmed },
-      { cafeteria: { $regex: new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i") } },
-      { "items.cafeteria": trimmed },
-      { "items.cafeteria": { $regex: new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i") } },
+      { cafeteriaId: resolved.id },
+      { "items.cafeteriaId": resolved.id },
+      { cafeteria: { $in: aliases } },
+      { cafeteria: { $in: names } },
+      { "items.cafeteria": { $in: aliases } },
+      { "items.cafeteria": { $in: names } },
     ];
   }
-  return getOrdersCollection()
+  const orders = await getOrdersCollection()
     .find(query)
     .sort({ createdAt: -1 })
     .toArray();
+  return hasCafeteria
+    ? orders.filter((order) =>
+        orderBelongsToCafeteria(order, cafeteria, cafeteriaId)
+      )
+    : orders;
 }
 
 async function getOrderById(userId, orderId) {
@@ -278,8 +294,43 @@ async function getOrderById(userId, orderId) {
   return order;
 }
 
-async function updateOrderStatus(orderId, nextStatus) {
+function orderBelongsToCafeteria(order, cafeteria, cafeteriaId) {
+  if (typeof cafeteria !== "string" || !cafeteria.trim()) return false;
+  const assigned = resolveCafeteria(cafeteria, cafeteriaId);
+  const orderId = resolveCafeteria("", order.cafeteriaId).id;
+  if (order.cafeteriaId) {
+    return orderId === assigned.id;
+  }
+  const itemCafeterias = Array.isArray(order.items)
+    ? order.items
+        .map((item) => item.cafeteria)
+        .filter((value) => typeof value === "string" && value.trim())
+    : [];
+  const names = itemCafeterias.length
+    ? itemCafeterias
+    : [order.cafeteria].filter(
+        (value) => typeof value === "string" && value.trim()
+      );
+  const ids = names.map((name) => resolveCafeteria(name).id);
+  return ids.length > 0 && ids.every((id) => id === assigned.id);
+}
+
+async function updateOrderStatus(orderId, requestedStatus, actor) {
   validateOrderId(orderId);
+
+  const staffRoles = [ROLES.ADMIN, ROLES.KITCHEN, ROLES.FACULTY];
+  if (!actor || !staffRoles.includes(actor.role) || actor.status !== "ACTIVE") {
+    const error = new Error("An active staff account is required");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (typeof requestedStatus !== "string" || !normalizeOrderStatus(requestedStatus)) {
+    const error = new Error("Invalid order status");
+    error.statusCode = 400;
+    throw error;
+  }
+  const nextStatus = normalizeOrderStatus(requestedStatus);
 
   const order = await getOrdersCollection().findOne({
     _id: new ObjectId(orderId),
@@ -288,6 +339,12 @@ async function updateOrderStatus(orderId, nextStatus) {
   if (!order) {
     const error = new Error("Order not found");
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (!orderBelongsToCafeteria(order, actor.cafeteria, actor.cafeteriaId)) {
+    const error = new Error("Order does not belong to your assigned cafeteria");
+    error.statusCode = 403;
     throw error;
   }
 
@@ -320,8 +377,8 @@ async function updateOrderStatus(orderId, nextStatus) {
   );
 
   if (!updatedOrder) {
-    const error = new Error("Failed to update order status");
-    error.statusCode = 500;
+    const error = new Error("Order status changed before this update completed");
+    error.statusCode = 409;
     throw error;
   }
 
@@ -512,6 +569,7 @@ module.exports = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
+  orderBelongsToCafeteria,
   markNoShow,
   releaseUncollectedOrder,
   cancelOrder,

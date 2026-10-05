@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/cart_item.dart';
 import '../services/api_service.dart';
+import '../utils/cafeteria_identity.dart';
 
 class CartProvider extends ChangeNotifier {
   final List<CartItem> _items = [];
@@ -164,26 +165,29 @@ class CartProvider extends ChangeNotifier {
   }
 
   String? get currentCafeteria =>
-      _items.isNotEmpty ? _items.first.cafeteria : null;
+      _items.isNotEmpty
+          ? CafeteriaIdentity.canonicalName(_items.first.cafeteria)
+          : null;
 
   bool hasDifferentCafeteria(String? cafeteria) {
-    if (_items.isEmpty || cafeteria == null || cafeteria.isEmpty) return false;
-    final current = _items.first.cafeteria;
-    if (current == null || current.isEmpty) return false;
-    return current != cafeteria;
+    if (_items.isEmpty || cafeteria == null || cafeteria.trim().isEmpty) {
+      return false;
+    }
+    final current = CafeteriaIdentity.key(_items.first.cafeteria);
+    final next = CafeteriaIdentity.key(cafeteria);
+    return current.isNotEmpty && next.isNotEmpty && current != next;
   }
 
   bool addItem(CartItem item) {
-    if (_items.isNotEmpty &&
-        _items.first.cafeteria != null &&
-        item.cafeteria != null &&
-        _items.first.cafeteria != item.cafeteria) {
+    if (hasDifferentCafeteria(item.cafeteria)) {
       return false;
     }
 
     final index = _items.indexWhere(
       (existing) =>
-          existing.name == item.name && existing.cafeteria == item.cafeteria,
+          existing.name == item.name &&
+          CafeteriaIdentity.key(existing.cafeteria) ==
+              CafeteriaIdentity.key(item.cafeteria),
     );
 
     if (index != -1) {

@@ -6,7 +6,7 @@ async function getDemand() {
     .collection("orders")
     .find({
       status: {
-        $ne: "CANCELLED",
+        $nin: ["CANCELLED", "Cancelled"],
       },
     })
     .toArray();

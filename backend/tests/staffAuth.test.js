@@ -119,25 +119,31 @@ test("staff login with valid Kitchen credentials returns real authenticated sess
   const service = loadAuthServiceWithUsers({ usersList: [kitchenUser] });
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      idToken: "real-firebase-kitchen-jwt-token",
-      refreshToken: "refresh-token-kitchen",
-      expiresIn: "3600",
-    }),
-  });
+  let firebaseRequest;
+  globalThis.fetch = async (_url, options) => {
+    firebaseRequest = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        idToken: "real-firebase-kitchen-jwt-token",
+        refreshToken: "refresh-token-kitchen",
+        expiresIn: "3600",
+      }),
+    };
+  };
 
   try {
     const result = await service.loginStaff({
       identifier: "kitchen@pesu.campuseats.com",
-      password: "kitchen-password-456",
+      password: "1234",
     });
 
     assert.equal(result.uid, "kitchen-uid-200");
     assert.equal(result.role, ROLES.KITCHEN);
     assert.equal(result.idToken, "real-firebase-kitchen-jwt-token");
     assert.equal(result.cafeteria, "Cafe PESU");
+    assert.equal(firebaseRequest.email, "kitchen@pesu.campuseats.com");
+    assert.equal(firebaseRequest.password, "1234#CampusEATS");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -204,6 +210,75 @@ test("wrong staff password is rejected", async () => {
         assert.equal(err.message, "Invalid staff credentials");
         return true;
       }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unprovisioned Firebase account cannot be assigned a staff role at login", async () => {
+  process.env.FIREBASE_WEB_API_KEY = "test-api-key";
+  const service = loadAuthServiceWithUsers();
+  const originalFetch = globalThis.fetch;
+  let firebaseRequests = 0;
+  globalThis.fetch = async () => {
+    firebaseRequests += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        localId: "unprovisioned-uid",
+        idToken: "unprovisioned-id-token",
+      }),
+    };
+  };
+
+  try {
+    await assert.rejects(
+      service.loginStaff({
+        identifier: "admin.unknown",
+        password: "password",
+      }),
+      (error) =>
+        error.statusCode === 401 &&
+        error.message === "Invalid staff credentials"
+    );
+    assert.equal(firebaseRequests, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("staff Firebase UID must match the provisioned role account", async () => {
+  process.env.FIREBASE_WEB_API_KEY = "test-api-key";
+  const service = loadAuthServiceWithUsers({
+    usersList: [{
+      uid: "provisioned-admin-uid",
+      staffId: "admin.bengaluru",
+      email: "admin.bengaluru@campuseats.local",
+      role: ROLES.ADMIN,
+      status: "ACTIVE",
+      cafeteria: "Bengaluru Cafe",
+      cafeteriaId: "bengaluru",
+    }],
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      localId: "different-firebase-uid",
+      idToken: "different-id-token",
+    }),
+  });
+
+  try {
+    await assert.rejects(
+      service.loginStaff({
+        identifier: "admin.bengaluru",
+        password: "password",
+      }),
+      (error) =>
+        error.statusCode === 401 &&
+        error.message === "Invalid staff credentials"
     );
   } finally {
     globalThis.fetch = originalFetch;

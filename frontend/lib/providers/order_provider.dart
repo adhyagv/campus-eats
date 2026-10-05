@@ -52,24 +52,24 @@ class OrderProvider extends ChangeNotifier {
     switch (status.trim().toLowerCase()) {
       case 'pending':
       case 'new':
-        return 'PENDING';
+        return 'Pending';
       case 'confirmed':
-        return 'CONFIRMED';
+        return 'Confirmed';
       case 'preparing':
-        return 'PREPARING';
+        return 'Preparing';
       case 'ready':
       case 'ready for pickup':
       case 'ready_for_pickup':
-        return 'READY';
+        return 'Ready';
       case 'completed':
       case 'picked up':
       case 'picked_up':
-        return 'COMPLETED';
+        return 'Completed';
       case 'cancelled':
       case 'canceled':
-        return 'CANCELLED';
+        return 'Cancelled';
       default:
-        return status.trim().toUpperCase();
+        return status.trim();
     }
   }
 
@@ -372,6 +372,51 @@ class OrderProvider extends ChangeNotifier {
   // GET CAFETERIA
   // ============================================================
 
+  static String _cafeteriaId(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]'),
+      '',
+    );
+    switch (normalized) {
+      case 'bengaluru':
+      case 'bengalurucafe':
+      case 'maincafeteria':
+        return 'bengaluru';
+      case 'cafepesu':
+      case 'pesucafe':
+        return 'pesucafe';
+      case 'nonveg':
+      case 'nonvegcafeteria':
+        return 'nonveg';
+      default:
+        return normalized;
+    }
+  }
+
+  String getCafeteriaId(Map<String, dynamic> order) {
+    final items = getItems(order);
+    final orderId = order['cafeteriaId']?.toString();
+    if (orderId != null && orderId.trim().isNotEmpty) {
+      return _cafeteriaId(orderId);
+    }
+    for (final item in items) {
+      final itemId = item['cafeteriaId']?.toString();
+      if (itemId != null && itemId.trim().isNotEmpty) {
+        return _cafeteriaId(itemId);
+      }
+    }
+    return _cafeteriaId(getCafeteria(order));
+  }
+
+  bool matchesCafeteria(
+    Map<String, dynamic> order, {
+    String? name,
+    String? id,
+  }) {
+    final assignedId = _cafeteriaId(id?.isNotEmpty == true ? id : name);
+    return assignedId.isNotEmpty && getCafeteriaId(order) == assignedId;
+  }
+
   String getCafeteria(Map<String, dynamic> order) {
     final items = getItems(order);
 
@@ -383,11 +428,10 @@ class OrderProvider extends ChangeNotifier {
       }
     }
 
-    // Also support order-level cafeteria
-    final cafeteria = order['cafeteria'];
-
-    if (cafeteria != null && cafeteria.toString().trim().isNotEmpty) {
-      return cafeteria.toString();
+    final orderCafeteria = order['cafeteria'];
+    if (orderCafeteria != null &&
+        orderCafeteria.toString().trim().isNotEmpty) {
+      return orderCafeteria.toString().trim();
     }
 
     final cafeteriaName = order['cafeteriaName'];
@@ -548,9 +592,20 @@ class OrderProvider extends ChangeNotifier {
       final index = _orders.indexWhere((order) => getOrderId(order) == orderId);
 
       if (index != -1) {
-        _orders[index]['status'] = normalizedStatus;
+        final updatedOrder = response['data'];
+        _orders[index] = {
+          ..._orders[index],
+          if (updatedOrder is Map)
+            ...Map<String, dynamic>.from(updatedOrder),
+          'status': normalizeStatus(
+            updatedOrder is Map
+                ? updatedOrder['status']?.toString()
+                : backendStatus,
+          ),
+        };
       }
 
+      _error = null;
       notifyListeners();
 
       await _syncFromBackend();
@@ -572,7 +627,7 @@ class OrderProvider extends ChangeNotifier {
     }
 
     final orderId = getOrderId(_orders[orderIndex]);
-    return updateOrderStatus(orderId, 'CONFIRMED');
+    return updateOrderStatus(orderId, 'Confirmed');
   }
 
   Future<bool> startPreparing(int orderIndex) async {
@@ -581,7 +636,7 @@ class OrderProvider extends ChangeNotifier {
     }
 
     final orderId = getOrderId(_orders[orderIndex]);
-    return updateOrderStatus(orderId, 'PREPARING');
+    return updateOrderStatus(orderId, 'Preparing');
   }
 
   Future<bool> markReady(int orderIndex) async {
@@ -590,7 +645,7 @@ class OrderProvider extends ChangeNotifier {
     }
 
     final orderId = getOrderId(_orders[orderIndex]);
-    return updateOrderStatus(orderId, 'READY');
+    return updateOrderStatus(orderId, 'Ready');
   }
 
   Future<bool> markCollected(int orderIndex) async {
@@ -599,7 +654,7 @@ class OrderProvider extends ChangeNotifier {
     }
 
     final orderId = getOrderId(_orders[orderIndex]);
-    return updateOrderStatus(orderId, 'COMPLETED');
+    return updateOrderStatus(orderId, 'Completed');
   }
 
   Future<bool> markPickedUp(int orderIndex) async {
@@ -608,7 +663,7 @@ class OrderProvider extends ChangeNotifier {
     }
 
     final orderId = getOrderId(_orders[orderIndex]);
-    return updateOrderStatus(orderId, 'COMPLETED');
+    return updateOrderStatus(orderId, 'Completed');
   }
 
   Future<bool> markNoShow(String orderId) async {

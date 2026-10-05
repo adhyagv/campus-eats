@@ -9,12 +9,29 @@ const { ROLES } = require("../../common/constants/roles");
 const { normalizeStudentId } = require("./auth.validator");
 
 const GENERIC_LOGIN_ERROR = "Invalid student ID or password";
+const FIREBASE_AUTH_NOT_CONFIGURED =
+  "Firebase Authentication is not configured for this project";
 
 function createError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   error.isOperational = true;
   return error;
+}
+
+function getFirebaseWebApiKey() {
+  const value = process.env.FIREBASE_WEB_API_KEY;
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/,$/, "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  return normalized || undefined;
 }
 
 function getInternalFirebaseEmail(studentId) {
@@ -66,6 +83,10 @@ async function registerUser({ studentId, password }) {
     throw createError("Student ID already registered", 409);
   }
 
+  if (!auth) {
+    throw createError(FIREBASE_AUTH_NOT_CONFIGURED, 503);
+  }
+
   const firebaseEmail = getInternalFirebaseEmail(normalizedStudentId);
   let userRecord;
 
@@ -106,6 +127,10 @@ async function registerUser({ studentId, password }) {
       throw error;
     }
 
+    if (error.code === "auth/configuration-not-found") {
+      throw createError(FIREBASE_AUTH_NOT_CONFIGURED, 503);
+    }
+
     if (error.code === "auth/email-already-exists") {
       throw createError("Student ID already registered", 409);
     }
@@ -140,7 +165,7 @@ async function loginUser({ studentId, password }) {
     throw createError(GENERIC_LOGIN_ERROR, 401);
   }
 
-  const apiKey = process.env.FIREBASE_WEB_API_KEY;
+  const apiKey = getFirebaseWebApiKey();
 
   if (!apiKey) {
     throw createError("FIREBASE_WEB_API_KEY is not configured", 500);
@@ -162,6 +187,19 @@ async function loginUser({ studentId, password }) {
 
   if (!response.ok) {
     const message = data?.error?.message;
+
+    if (
+      message === "CONFIGURATION_NOT_FOUND" ||
+      message === "OPERATION_NOT_ALLOWED"
+    ) {
+      throw createError(FIREBASE_AUTH_NOT_CONFIGURED, 503);
+    }
+    if (
+      message === "API_KEY_INVALID" ||
+      message?.startsWith("API key not valid.")
+    ) {
+      throw createError("Firebase Web API key is invalid", 503);
+    }
 
     if (
       message === "EMAIL_NOT_FOUND" ||
@@ -309,9 +347,11 @@ async function loginStaff({ identifier, email, staffId, rollNumber, password }) 
     if (user.status !== "ACTIVE") {
       throw createError("Staff account is not active", 403);
     }
+  } else {
+    throw createError("Invalid staff credentials", 401);
   }
 
-  const apiKey = process.env.FIREBASE_WEB_API_KEY;
+  const apiKey = getFirebaseWebApiKey();
   if (!apiKey) {
     throw createError("FIREBASE_WEB_API_KEY is not configured", 500);
   }
@@ -347,6 +387,20 @@ async function loginStaff({ identifier, email, staffId, rollNumber, password }) 
 
   if (!response.ok) {
     const message = data?.error?.message;
+
+    if (
+      message === "CONFIGURATION_NOT_FOUND" ||
+      message === "OPERATION_NOT_ALLOWED"
+    ) {
+      throw createError(FIREBASE_AUTH_NOT_CONFIGURED, 503);
+    }
+    if (
+      message === "API_KEY_INVALID" ||
+      message?.startsWith("API key not valid.")
+    ) {
+      throw createError("Firebase Web API key is invalid", 503);
+    }
+
     if (
       message === "EMAIL_NOT_FOUND" ||
       message === "INVALID_PASSWORD" ||
@@ -359,51 +413,11 @@ async function loginStaff({ identifier, email, staffId, rollNumber, password }) 
   }
 
   const resolvedUid = data.localId || user?.uid;
-
-  if (!user) {
-    user = await users.findOne({
-      $or: [
-        ...(resolvedUid ? [{ uid: resolvedUid }] : []),
-        { email: firebaseEmail },
-        { staffId: normalizedLower },
-      ],
-    });
+  if (data.localId && user.uid && user.uid !== data.localId) {
+    throw createError("Invalid staff credentials", 401);
   }
-
-  const now = new Date();
-  if (!user) {
-    let inferredRole = ROLES.FACULTY;
-    let cafeteria = "Bengaluru Cafe";
-    let cafeteriaId = "bengaluru";
-    if (normalizedLower.startsWith("admin.")) {
-      inferredRole = ROLES.ADMIN;
-      if (normalizedLower.includes("pesu")) {
-        cafeteria = "PESU Cafe";
-        cafeteriaId = "pesucafe";
-      } else if (normalizedLower.includes("nonveg")) {
-        cafeteria = "Nonveg";
-        cafeteriaId = "nonveg";
-      }
-    } else if (normalizedLower.startsWith("kitchen.")) {
-      inferredRole = ROLES.KITCHEN;
-    }
-
-    user = {
-      uid: resolvedUid,
-      staffId: normalizedLower,
-      rollNumber: normalizedLower.startsWith("fac") ? upperId : undefined,
-      email: firebaseEmail,
-      name: data.displayName || `${cafeteria} ${inferredRole}`,
-      role: inferredRole,
-      status: "ACTIVE",
-      cafeteria,
-      cafeteriaId,
-      title: `${cafeteria} ${inferredRole}`,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await users.insertOne(user);
-  } else if (data.localId && (!user.uid || user.uid !== data.localId)) {
+  if (data.localId && !user.uid) {
+    const now = new Date();
     await users.updateOne({ _id: user._id }, { $set: { uid: data.localId, updatedAt: now } });
     user.uid = data.localId;
   }

@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'demo_service.dart';
 
 class ApiService {
-  static const bool demoMode = true;
+  static const bool demoMode = false;
   // ============================================================
   // BACKEND URL
   // ============================================================
@@ -67,9 +67,7 @@ class ApiService {
           .post(
             Uri.parse('$baseUrl/auth/campus-checkin'),
             headers: _headers,
-            body: jsonEncode({
-              'checkinChallenge': trimmed,
-            }),
+            body: jsonEncode({'checkinChallenge': trimmed}),
           )
           .timeout(const Duration(seconds: 10));
 
@@ -87,19 +85,23 @@ class ApiService {
       final message = decoded is Map && decoded['message'] != null
           ? decoded['message'].toString()
           : 'Campus check-in verification failed (${response.statusCode})';
-      
+
       if (message.toLowerCase().contains('expired')) {
         throw Exception('QR expired. Please scan the latest cafeteria QR.');
       }
-      if (message.toLowerCase().contains('invalid') || message.toLowerCase().contains('signature')) {
+      if (message.toLowerCase().contains('invalid') ||
+          message.toLowerCase().contains('signature')) {
         throw Exception('Invalid cafeteria QR. Please try again.');
       }
-      if (message.toLowerCase().contains('replay') || message.toLowerCase().contains('already been used')) {
+      if (message.toLowerCase().contains('replay') ||
+          message.toLowerCase().contains('already been used')) {
         throw Exception('QR expired. Please scan the latest cafeteria QR.');
       }
       throw Exception(message);
     } on FormatException {
-      throw Exception('Server returned an invalid campus verification response.');
+      throw Exception(
+        'Server returned an invalid campus verification response.',
+      );
     } on TimeoutException {
       throw Exception('Campus check-in verification request timed out.');
     } on http.ClientException {
@@ -171,6 +173,9 @@ class ApiService {
           : null;
 
       if (response.statusCode == 200 && data != null) {
+        if (data['role'] != 'Student') {
+          throw Exception('This account is not a student');
+        }
         final idToken = data['idToken']?.toString();
         if (idToken == null || idToken.isEmpty) {
           throw Exception('Login did not return a session token');
@@ -300,10 +305,7 @@ class ApiService {
           .post(
             Uri.parse('$baseUrl/auth/staff-login'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'identifier': identifier,
-              'password': password,
-            }),
+            body: jsonEncode({'identifier': identifier, 'password': password}),
           )
           .timeout(const Duration(seconds: 15));
 
@@ -315,8 +317,15 @@ class ApiService {
           : null;
 
       if (response.statusCode == 200 && data != null) {
+        if (data['role'] != 'Faculty') {
+          throw Exception('This account is not a teacher/faculty member');
+        }
         final idToken = data['idToken']?.toString();
-        facultyId = data['rollNumber']?.toString() ??
+        if (idToken == null || idToken.isEmpty) {
+          throw Exception('Faculty login did not return a session token');
+        }
+        facultyId =
+            data['rollNumber']?.toString() ??
             data['staffId']?.toString() ??
             identifier;
         facultyName = data['name']?.toString() ?? 'Faculty Member';
@@ -335,9 +344,7 @@ class ApiService {
           _secureStorage.write(key: 'faculty_role', value: facultyRole ?? ''),
           _secureStorage.write(key: 'active_role', value: 'teacher'),
         ];
-        if (idToken != null) {
-          futures.add(_secureStorage.write(key: 'faculty_token', value: idToken));
-        }
+        futures.add(_secureStorage.write(key: 'faculty_token', value: idToken));
         await Future.wait(futures);
         return {'success': true, 'data': data, ...data};
       }
@@ -346,64 +353,12 @@ class ApiService {
           ? decoded['message'].toString()
           : 'Invalid Teacher credentials';
 
-      if ((response.statusCode == 400 && decoded == null) ||
-          identifier.startsWith('faculty.')) {
-        final parts = identifier
-            .replaceAll('@pes.edu', '')
-            .split('.')
-            .map((p) => p.isNotEmpty ? '${p[0].toUpperCase()}${p.substring(1)}' : '')
-            .where((p) => p.isNotEmpty)
-            .join(' ');
-        facultyId = identifier;
-        facultyName = parts.isNotEmpty ? parts : 'Faculty Member';
-        facultyProgram = 'Faculty';
-        facultyRole = 'Faculty';
-        activeRole = 'teacher';
-
-        await Future.wait([
-          _secureStorage.write(key: 'faculty_id', value: facultyId ?? ''),
-          _secureStorage.write(key: 'faculty_name', value: facultyName ?? ''),
-          _secureStorage.write(
-            key: 'faculty_program',
-            value: facultyProgram ?? '',
-          ),
-          _secureStorage.write(key: 'faculty_role', value: facultyRole ?? ''),
-          _secureStorage.write(key: 'active_role', value: 'teacher'),
-        ]);
-        return {'success': true, 'rollNumber': facultyId, 'name': facultyName};
-      }
-
       throw Exception(message);
     } on FormatException {
       throw Exception('The server returned an invalid response');
     } on TimeoutException {
       throw Exception('The server took too long to respond');
     } on http.ClientException {
-      if (identifier.startsWith('faculty.')) {
-        final parts = identifier
-            .replaceAll('@pes.edu', '')
-            .split('.')
-            .map((p) => p.isNotEmpty ? '${p[0].toUpperCase()}${p.substring(1)}' : '')
-            .where((p) => p.isNotEmpty)
-            .join(' ');
-        facultyId = identifier;
-        facultyName = parts.isNotEmpty ? parts : 'Faculty Member';
-        facultyProgram = 'Faculty';
-        facultyRole = 'Faculty';
-        activeRole = 'teacher';
-
-        await Future.wait([
-          _secureStorage.write(key: 'faculty_id', value: facultyId ?? ''),
-          _secureStorage.write(key: 'faculty_name', value: facultyName ?? ''),
-          _secureStorage.write(
-            key: 'faculty_program',
-            value: facultyProgram ?? '',
-          ),
-          _secureStorage.write(key: 'faculty_role', value: facultyRole ?? ''),
-          _secureStorage.write(key: 'active_role', value: 'teacher'),
-        ]);
-        return {'success': true, 'rollNumber': facultyId, 'name': facultyName};
-      }
       throw Exception('Unable to reach CampusEATS. Check your connection.');
     }
   }
@@ -442,7 +397,8 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getCart() async {
-    final token = (activeRole == 'student' ? studentToken : facultyToken) ??
+    final token =
+        (activeRole == 'student' ? studentToken : facultyToken) ??
         studentToken ??
         facultyToken;
     if (token == null) {
@@ -509,7 +465,8 @@ class ApiService {
   }
 
   static Future<void> syncCart(List<Map<String, dynamic>> items) async {
-    final token = (activeRole == 'student' ? studentToken : facultyToken) ??
+    final token =
+        (activeRole == 'student' ? studentToken : facultyToken) ??
         studentToken ??
         facultyToken;
     if (token == null || token.isEmpty) return;
@@ -578,6 +535,9 @@ class ApiService {
           : null;
 
       if (response.statusCode == 200 && data != null) {
+        if (data['role'] != 'Admin') {
+          throw Exception('This account is not a cafeteria admin');
+        }
         final idToken = data['idToken']?.toString();
         if (idToken == null || idToken.isEmpty) {
           throw Exception('Admin login did not return a session token');
@@ -615,25 +575,6 @@ class ApiService {
     } on TimeoutException {
       throw Exception('The server took too long to respond');
     } on http.ClientException {
-      if (demoMode) {
-        final data = DemoService.login(identifier, password);
-        final user = data['user'] as Map;
-        adminEmail = identifier.trim().toLowerCase();
-        adminToken = data['token'].toString();
-        adminCafeteria = user['cafeteria'].toString();
-        adminCafeteriaId = user['cafeteriaId']?.toString();
-        adminTitle = user['title'].toString();
-        activeRole = 'admin';
-        await _secureStorage.write(key: 'admin_token', value: adminToken);
-        await _secureStorage.write(key: 'admin_email', value: adminEmail);
-        await _secureStorage.write(
-          key: 'admin_cafeteria',
-          value: adminCafeteria,
-        );
-        await _secureStorage.write(key: 'admin_title', value: adminTitle);
-        await _secureStorage.write(key: 'active_role', value: 'admin');
-        return data;
-      }
       throw Exception('Unable to reach CampusEATS. Check your connection.');
     }
   }
@@ -662,6 +603,9 @@ class ApiService {
           : null;
 
       if (response.statusCode == 200 && data != null) {
+        if (data['role'] != 'Kitchen') {
+          throw Exception('This account is not kitchen staff');
+        }
         final idToken = data['idToken']?.toString();
         if (idToken == null || idToken.isEmpty) {
           throw Exception('Kitchen login did not return a session token');
@@ -699,10 +643,6 @@ class ApiService {
     } on TimeoutException {
       throw Exception('The server took too long to respond');
     } on http.ClientException {
-      if (demoMode && password == '1234') {
-        startDemoKitchenSession();
-        return {'success': true, 'token': kitchenToken};
-      }
       throw Exception('Unable to reach CampusEATS. Check your connection.');
     }
   }
@@ -790,6 +730,20 @@ class ApiService {
   // GET MENU
   // ============================================================
 
+  static List<dynamic> parseMenuResponse(dynamic decoded) {
+    dynamic items = decoded;
+    if (items is Map) {
+      items = items['data'] ?? items['menu'] ?? items['items'];
+      if (items is Map) {
+        items = items['menu'] ?? items['items'];
+      }
+    }
+    if (items is List) {
+      return List<dynamic>.from(items);
+    }
+    throw const FormatException('The server returned an invalid menu response');
+  }
+
   static Future<List<dynamic>> getMenu() async {
     if (demoMode) {
       return DemoService.getMenu(
@@ -803,16 +757,7 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-
-      if (data is Map && data.containsKey('menu')) {
-        return List<dynamic>.from(data['menu']);
-      }
-
-      if (data is List) {
-        return data;
-      }
-
-      return [];
+      return parseMenuResponse(data);
     }
 
     throw Exception('Failed to load menu: ${response.statusCode}');
@@ -1043,7 +988,8 @@ class ApiService {
     String? orderType,
     String? scheduledPickupAt,
   }) async {
-    final token = (activeRole == 'student' ? studentToken : facultyToken) ??
+    final token =
+        (activeRole == 'student' ? studentToken : facultyToken) ??
         studentToken ??
         facultyToken;
     if (token == null) {
@@ -1077,7 +1023,8 @@ class ApiService {
         ? data['message'].toString()
         : 'Failed to create payment order (${response.statusCode})';
 
-    if (message.contains('Cart is empty') || message.contains('cart is empty')) {
+    if (message.contains('Cart is empty') ||
+        message.contains('cart is empty')) {
       throw Exception('Your cart is empty.');
     }
     if (message.contains('An active student account is required') ||
@@ -1096,16 +1043,15 @@ class ApiService {
     String? razorpayPaymentId,
     String? razorpaySignature,
   }) async {
-    final token = (activeRole == 'student' ? studentToken : facultyToken) ??
+    final token =
+        (activeRole == 'student' ? studentToken : facultyToken) ??
         studentToken ??
         facultyToken;
     if (token == null) {
       throw Exception('Session expired. Please log in again.');
     }
 
-    final bodyMap = <String, dynamic>{
-      'orderId': orderId,
-    };
+    final bodyMap = <String, dynamic>{'orderId': orderId};
     if (cashfreeOrderId != null) bodyMap['cashfreeOrderId'] = cashfreeOrderId;
     if (razorpayOrderId != null) bodyMap['razorpayOrderId'] = razorpayOrderId;
     if (razorpayPaymentId != null) {
@@ -1143,23 +1089,18 @@ class ApiService {
     String? customCampusProof,
     String? orderType,
     String? scheduledPickupAt,
-  }) =>
-      createPaymentOrder(
-        notes: notes,
-        cafeteria: cafeteria,
-        customCampusProof: customCampusProof,
-        orderType: orderType,
-        scheduledPickupAt: scheduledPickupAt,
-      );
+  }) => createPaymentOrder(
+    notes: notes,
+    cafeteria: cafeteria,
+    customCampusProof: customCampusProof,
+    orderType: orderType,
+    scheduledPickupAt: scheduledPickupAt,
+  );
 
   static Future<Map<String, dynamic>> verifyCashfreePayment({
     required String orderId,
     String? cashfreeOrderId,
-  }) =>
-      verifyPayment(
-        orderId: orderId,
-        cashfreeOrderId: cashfreeOrderId,
-      );
+  }) => verifyPayment(orderId: orderId, cashfreeOrderId: cashfreeOrderId);
 
   static Future<Map<String, dynamic>> createRazorpayOrder({
     String? notes,
@@ -1167,26 +1108,24 @@ class ApiService {
     String? customCampusProof,
     String? orderType,
     String? scheduledPickupAt,
-  }) =>
-      createPaymentOrder(
-        notes: notes,
-        cafeteria: cafeteria,
-        customCampusProof: customCampusProof,
-        orderType: orderType,
-        scheduledPickupAt: scheduledPickupAt,
-      );
+  }) => createPaymentOrder(
+    notes: notes,
+    cafeteria: cafeteria,
+    customCampusProof: customCampusProof,
+    orderType: orderType,
+    scheduledPickupAt: scheduledPickupAt,
+  );
 
   static Future<Map<String, dynamic>> verifyRazorpayPayment({
     required String razorpayOrderId,
     required String razorpayPaymentId,
     required String razorpaySignature,
-  }) =>
-      verifyPayment(
-        orderId: razorpayOrderId,
-        razorpayOrderId: razorpayOrderId,
-        razorpayPaymentId: razorpayPaymentId,
-        razorpaySignature: razorpaySignature,
-      );
+  }) => verifyPayment(
+    orderId: razorpayOrderId,
+    razorpayOrderId: razorpayOrderId,
+    razorpayPaymentId: razorpayPaymentId,
+    razorpaySignature: razorpaySignature,
+  );
 
   static Future<Map<String, dynamic>> markOrderNoShow(String orderId) async {
     final response = await http.patch(
@@ -1268,7 +1207,8 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getStudentOrders() async {
-    final token = (activeRole == 'student' ? studentToken : facultyToken) ??
+    final token =
+        (activeRole == 'student' ? studentToken : facultyToken) ??
         studentToken ??
         facultyToken;
     if (token == null) {
@@ -1338,144 +1278,10 @@ class ApiService {
   }
 
   // ============================================================
-  // DEMO ORDERS
-  // Used while backend is being developed
-  // ============================================================
-
-  static List<dynamic> _demoOrders() {
-    return [
-      {
-        'id': 1001,
-        'orderId': 'CE1001',
-        'studentName': 'Adhya',
-        'studentEmail': 'student@pes.edu',
-        'status': 'Pending',
-        'paymentStatus': 'Paid',
-        'totalAmount': 90,
-        'cafeteria': 'Main Cafeteria',
-        'createdAt': DateTime.now().toIso8601String(),
-        'items': [
-          {
-            'name': 'Masala Dosa',
-            'quantity': 1,
-            'price': 60,
-            'totalPrice': 60,
-            'image': 'assets/images/food/masala_dosa.jpg',
-          },
-          {
-            'name': 'Vada',
-            'quantity': 1,
-            'price': 25,
-            'totalPrice': 25,
-            'image': 'assets/images/food/vada.jpg',
-          },
-          {
-            'name': 'Coffee',
-            'quantity': 1,
-            'price': 5,
-            'totalPrice': 5,
-            'image': 'assets/images/food/coffee.jpg',
-          },
-        ],
-      },
-
-      {
-        'id': 1002,
-        'orderId': 'CE1002',
-        'studentName': 'Rahul',
-        'studentEmail': 'rahul@pes.edu',
-        'status': 'Preparing',
-        'paymentStatus': 'Paid',
-        'totalAmount': 120,
-        'cafeteria': 'Main Cafeteria',
-        'createdAt': DateTime.now()
-            .subtract(const Duration(minutes: 8))
-            .toIso8601String(),
-        'items': [
-          {
-            'name': 'Chicken Biryani',
-            'quantity': 1,
-            'price': 100,
-            'totalPrice': 100,
-            'image': 'assets/images/food/chicken_biryani.jpg',
-          },
-          {
-            'name': 'Cold Coffee',
-            'quantity': 1,
-            'price': 20,
-            'totalPrice': 20,
-            'image': 'assets/images/food/cold_coffee.jpg',
-          },
-        ],
-      },
-
-      {
-        'id': 1003,
-        'orderId': 'CE1003',
-        'studentName': 'Sneha',
-        'studentEmail': 'sneha@pes.edu',
-        'status': 'Ready',
-        'paymentStatus': 'Paid',
-        'totalAmount': 70,
-        'cafeteria': 'Food Court',
-        'createdAt': DateTime.now()
-            .subtract(const Duration(minutes: 15))
-            .toIso8601String(),
-        'items': [
-          {
-            'name': 'Idli',
-            'quantity': 1,
-            'price': 30,
-            'totalPrice': 30,
-            'image': 'assets/images/food/idli.jpg',
-          },
-          {
-            'name': 'Puri',
-            'quantity': 1,
-            'price': 40,
-            'totalPrice': 40,
-            'image': 'assets/images/food/puri.jpg',
-          },
-        ],
-      },
-
-      {
-        'id': 1004,
-        'orderId': 'CE1004',
-        'studentName': 'Arjun',
-        'studentEmail': 'arjun@pes.edu',
-        'status': 'Completed',
-        'paymentStatus': 'Paid',
-        'totalAmount': 80,
-        'cafeteria': 'Main Cafeteria',
-        'createdAt': DateTime.now()
-            .subtract(const Duration(minutes: 30))
-            .toIso8601String(),
-        'items': [
-          {
-            'name': 'Bisi Bele Bath',
-            'quantity': 1,
-            'price': 40,
-            'totalPrice': 40,
-            'image': 'assets/images/food/bisibele_bath.jpg',
-          },
-          {
-            'name': 'Set Dosa',
-            'quantity': 1,
-            'price': 40,
-            'totalPrice': 40,
-            'image': 'assets/images/food/set_dosa.jpg',
-          },
-        ],
-      },
-    ];
-  }
-  // ============================================================
   // UPDATE ORDER STATUS
   // ============================================================
   //
-  // IMPORTANT:
-  // server.js uses PUT /orders/:id/status
+  // The backend accepts PATCH /orders/:id/status.
   //
   // ============================================================
 
@@ -1498,7 +1304,7 @@ class ApiService {
       );
     }
     final response = await http.patch(
-      Uri.parse('$baseUrl/orders/$orderId/status'),
+      Uri.parse('$baseUrl/orders/${Uri.encodeComponent(orderId)}/status'),
       headers: _headers,
       body: jsonEncode({'status': status}),
     );
@@ -1509,16 +1315,20 @@ class ApiService {
 
     if (response.statusCode == 200) {
       if (response.body.isEmpty) {
-        return {'success': true};
+        throw Exception('The server returned an empty order update response');
       }
 
       final data = jsonDecode(response.body);
 
       if (data is Map<String, dynamic>) {
+        final updatedOrder = data['data'];
+        if (updatedOrder is! Map || updatedOrder['status'] == null) {
+          throw Exception('The server did not return the updated order status');
+        }
         return data;
       }
 
-      return {'success': true, 'data': data};
+      throw Exception('The server returned an invalid order update response');
     }
 
     throw Exception(
@@ -1604,8 +1414,7 @@ class ApiService {
       body: jsonEncode({
         'orderId': orderId,
         'rating': rating,
-        if (review != null && review.trim().isNotEmpty)
-          'review': review.trim(),
+        if (review != null && review.trim().isNotEmpty) 'review': review.trim(),
       }),
     );
 
@@ -1665,7 +1474,9 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> fetchCafeteriaRating(String cafeteria) async {
+  static Future<Map<String, dynamic>> fetchCafeteriaRating(
+    String cafeteria,
+  ) async {
     try {
       final encoded = Uri.encodeComponent(cafeteria);
       final response = await http.get(
@@ -1679,21 +1490,15 @@ class ApiService {
           return Map<String, dynamic>.from(data['data'] as Map);
         }
       }
-      return {
-        'cafeteria': cafeteria,
-        'averageRating': 0.0,
-        'ratingCount': 0,
-      };
+      return {'cafeteria': cafeteria, 'averageRating': 0.0, 'ratingCount': 0};
     } catch (_) {
-      return {
-        'cafeteria': cafeteria,
-        'averageRating': 0.0,
-        'ratingCount': 0,
-      };
+      return {'cafeteria': cafeteria, 'averageRating': 0.0, 'ratingCount': 0};
     }
   }
 
-  static Future<List<Map<String, dynamic>>> fetchCafeteriaReviews(String cafeteria) async {
+  static Future<List<Map<String, dynamic>>> fetchCafeteriaReviews(
+    String cafeteria,
+  ) async {
     try {
       final encoded = Uri.encodeComponent(cafeteria);
       final response = await http.get(

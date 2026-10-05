@@ -2,8 +2,62 @@ import 'package:flutter/foundation.dart';
 
 import '../models/food_model.dart';
 import '../services/api_service.dart';
+import '../utils/cafeteria_identity.dart';
 
 class MenuProvider extends ChangeNotifier {
+  static FoodModel mapMenuItem(Map<dynamic, dynamic> item) {
+    final rawAvailability = item['isAvailable'] ?? item['available'];
+    return FoodModel(
+      id: item['id'] == null ? null : int.tryParse(item['id'].toString()),
+      backendId: item['_id']?.toString(),
+      name: item['name']?.toString() ?? 'Unknown Food',
+      price: double.tryParse(item['price']?.toString() ?? '0') ?? 0.0,
+      description: item['description']?.toString() ?? '',
+      category: item['category']?.toString() ?? 'Other',
+      cafeteria: CafeteriaIdentity.canonicalName(
+        item['cafeteria']?.toString(),
+      ),
+      imagePath:
+          item['imageUrl']?.toString() ??
+          item['imagePath']?.toString() ??
+          item['image']?.toString() ??
+          '',
+      isAvailable: rawAvailability is bool ? rawAvailability : true,
+    );
+  }
+
+  static List<FoodModel> filterFoods(
+    Iterable<FoodModel> foods, {
+    required String cafeteria,
+    String category = 'All',
+    String search = '',
+    bool availableOnly = false,
+  }) {
+    final selectedCafeteriaKey = CafeteriaIdentity.key(cafeteria);
+    final normalizedCategory = _categoryKey(category);
+    final normalizedSearch = search.trim().toLowerCase();
+
+    return foods.where((food) {
+      final matchesCafeteria =
+          selectedCafeteriaKey.isNotEmpty &&
+          CafeteriaIdentity.key(food.cafeteria) == selectedCafeteriaKey;
+      final matchesCategory =
+          normalizedCategory == 'all' ||
+          _categoryKey(food.category) == normalizedCategory;
+      final matchesSearch =
+          normalizedSearch.isEmpty ||
+          food.name.toLowerCase().contains(normalizedSearch) ||
+          food.description.toLowerCase().contains(normalizedSearch);
+      return matchesCafeteria &&
+          matchesCategory &&
+          matchesSearch &&
+          (!availableOnly || food.isAvailable);
+    }).toList();
+  }
+
+  static String _categoryKey(String category) =>
+      category.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
   // ============================================================
   // FOOD LIST
   // ============================================================
@@ -48,29 +102,7 @@ class MenuProvider extends ChangeNotifier {
           continue;
         }
 
-        final food = FoodModel(
-          id: item['id'] == null ? null : int.tryParse(item['id'].toString()),
-          backendId: item['_id']?.toString(),
-
-          name: item['name']?.toString() ?? 'Unknown Food',
-
-          price: double.tryParse(item['price']?.toString() ?? '0') ?? 0.0,
-
-          description: item['description']?.toString() ?? '',
-
-          category: item['category']?.toString() ?? 'Other',
-
-          cafeteria: item['cafeteria']?.toString() ?? 'Bengaluru Cafe',
-
-          imagePath:
-              item['imagePath']?.toString() ?? item['image']?.toString() ?? '',
-
-          isAvailable: item['isAvailable'] == null
-              ? true
-              : item['isAvailable'] == true,
-        );
-
-        _foods.add(food);
+        _foods.add(mapMenuItem(item));
       }
 
       _error = null;

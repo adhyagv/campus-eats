@@ -6,9 +6,16 @@ import '../../models/cart_item.dart';
 import '../../providers/menu_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../widgets/cart_switch_dialog.dart';
+import '../../utils/cafeteria_identity.dart';
+import 'food_details_screen.dart';
 
 class MenuScreen extends StatefulWidget {
-  const MenuScreen({super.key});
+  const MenuScreen({
+    super.key,
+    this.initialCafeteria = 'Bengaluru Cafe',
+  });
+
+  final String initialCafeteria;
 
   @override
   State<MenuScreen> createState() => _MenuScreenState();
@@ -43,6 +50,9 @@ class _MenuScreenState extends State<MenuScreen> {
   @override
   void initState() {
     super.initState();
+    selectedCafeteria = CafeteriaIdentity.canonicalName(
+      widget.initialCafeteria,
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -66,25 +76,124 @@ class _MenuScreenState extends State<MenuScreen> {
   // ============================================================
 
   List<FoodModel> getFilteredFoods(List<FoodModel> foods) {
-    final search = searchController.text.trim().toLowerCase();
+    return MenuProvider.filterFoods(
+      foods,
+      cafeteria: selectedCafeteria,
+      category: selectedCategory,
+      search: searchController.text,
+    );
+  }
 
-    return foods.where((food) {
-      // CATEGORY
-      final matchesCategory =
-          selectedCategory == 'All' ||
-          food.category.toLowerCase() == selectedCategory.toLowerCase();
+  List<FoodModel> getPopularFoods(List<FoodModel> foods) {
+    return MenuProvider.filterFoods(
+      foods,
+      cafeteria: selectedCafeteria,
+      availableOnly: true,
+    ).take(3).toList();
+  }
 
-      final matchesCafeteria =
-          food.cafeteria.toLowerCase() == selectedCafeteria.toLowerCase();
+  void openPopularFood(FoodModel food) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FoodDetailsScreen(
+          name: food.name,
+          price: '₹${food.price.toStringAsFixed(0)}',
+          icon: Icons.restaurant_menu,
+          menuItemId: food.id,
+          backendMenuItemId: food.backendId,
+          cafeteria: food.cafeteria,
+        ),
+      ),
+    );
+  }
 
-      // SEARCH
-      final matchesSearch =
-          search.isEmpty ||
-          food.name.toLowerCase().contains(search) ||
-          food.description.toLowerCase().contains(search);
+  Widget popularAtCafeteria(List<FoodModel> foods) {
+    if (foods.isEmpty) return const SizedBox.shrink();
 
-      return matchesCategory && matchesSearch && matchesCafeteria;
-    }).toList();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0DE),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_fire_department, color: Colors.deepOrange),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Popular at $selectedCafeteria',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 138,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: foods.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final food = foods[index];
+                return SizedBox(
+                  width: 145,
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => openPopularFood(food),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.restaurant,
+                              color: Colors.orange,
+                              size: 25,
+                            ),
+                            const Spacer(),
+                            Text(
+                              food.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '₹${food.price.toStringAsFixed(0)} • ${food.category}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ============================================================
@@ -122,7 +231,7 @@ class _MenuScreenState extends State<MenuScreen> {
       name: food.name,
       price: food.price,
       quantity: 1,
-      cafeteria: selectedCafeteria,
+      cafeteria: CafeteriaIdentity.canonicalName(food.cafeteria),
       image: food.imagePath,
     );
 
@@ -370,19 +479,7 @@ class _MenuScreenState extends State<MenuScreen> {
               // ==================================================
               ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child:
-                    food.imagePath.isNotEmpty &&
-                        food.imagePath.startsWith('http')
-                    ? Image.network(
-                        food.imagePath,
-                        width: 100,
-                        height: 100,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return foodPlaceholder();
-                        },
-                      )
-                    : foodPlaceholder(),
+                child: _foodImage(food.imagePath, width: 100, height: 100),
               ),
 
               const SizedBox(width: 14),
@@ -489,6 +586,34 @@ class _MenuScreenState extends State<MenuScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _foodImage(
+    String imagePath, {
+    required double width,
+    required double height,
+  }) {
+    if (imagePath.isEmpty) return foodPlaceholder(width: width, height: height);
+    final isRemote = imagePath.startsWith('http://') ||
+        imagePath.startsWith('https://');
+    if (isRemote) {
+      return Image.network(
+        imagePath,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            foodPlaceholder(width: width, height: height),
+      );
+    }
+    return Image.asset(
+      imagePath,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) =>
+          foodPlaceholder(width: width, height: height),
     );
   }
 
@@ -631,7 +756,7 @@ class _MenuScreenState extends State<MenuScreen> {
                   const SizedBox(height: 10),
 
                   DropdownButtonFormField<String>(
-                    value: selectedCafeteria,
+                    initialValue: selectedCafeteria,
 
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
@@ -749,6 +874,8 @@ class _MenuScreenState extends State<MenuScreen> {
                   // ==================================================
                   // FOOD LIST
                   // ==================================================
+                  popularAtCafeteria(getPopularFoods(menuProvider.foods)),
+
                   if (foods.isEmpty)
                     Container(
                       width: double.infinity,

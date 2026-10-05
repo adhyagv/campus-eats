@@ -174,7 +174,8 @@ class ReadyOrders extends StatelessWidget {
                                 content: Text(
                                   success
                                       ? 'Order completed successfully!'
-                                      : 'Failed to update order.',
+                                      : orderProvider.error ??
+                                            'Failed to update order.',
                                 ),
 
                                 backgroundColor: success

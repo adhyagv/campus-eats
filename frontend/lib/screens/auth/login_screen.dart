@@ -521,7 +521,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.shield_outlined, color: roleColor, size: 20),
+                          Icon(
+                            Icons.shield_outlined,
+                            color: roleColor,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             widget.role == "Teacher"
@@ -534,7 +538,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 8),
                       Text(
                         "Use your authorized CampusEATS credentials.",
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -559,7 +566,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return "Example: FAC001";
 
       case "Kitchen Staff":
-        return "Example: kitchen";
+        return "Example: kitchen@pesu.campuseats.com";
 
       case "Admin":
         return "Example: admin.bengalurucafe";
@@ -575,7 +582,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return "FAC001";
 
       case "Kitchen Staff":
-        return "kitchen";
+        return "kitchen@pesu.campuseats.com";
 
       case "Admin":
         return "admin.bengalurucafe";

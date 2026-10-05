@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../../models/order_model.dart';
 import '../../providers/order_provider.dart';
-import '../../services/api_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -48,10 +47,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void initState() {
     super.initState();
 
-    // Load orders from SQLite/backend
+    // The parent dashboard restores the role-specific staff session.
     Future.microtask(() async {
-      await ApiService.restoreAdminSession();
-      await ApiService.restoreKitchenSession();
       if (!mounted) return;
       await context.read<OrderProvider>().loadOrders();
     });
@@ -536,14 +533,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   orderMap,
                                 );
                                 final success = await orderProvider
-                                    .updateOrderStatus(orderId, 'CONFIRMED');
+                                    .updateOrderStatus(orderId, 'Confirmed');
                                 if (!context.mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
                                       success
                                           ? 'Order confirmed.'
-                                          : 'Failed to confirm order.',
+                                          : orderProvider.error ??
+                                                'Failed to confirm order.',
                                     ),
                                     backgroundColor: success
                                         ? Colors.green
@@ -573,14 +571,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   orderMap,
                                 );
                                 final success = await orderProvider
-                                    .updateOrderStatus(orderId, 'PREPARING');
+                                    .updateOrderStatus(orderId, 'Preparing');
                                 if (!context.mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
                                       success
                                           ? 'Order moved to Preparing.'
-                                          : 'Failed to update order.',
+                                          : orderProvider.error ??
+                                                'Failed to update order.',
                                     ),
                                     backgroundColor: success
                                         ? Colors.green
@@ -610,14 +609,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   orderMap,
                                 );
                                 final success = await orderProvider
-                                    .updateOrderStatus(orderId, 'READY');
+                                    .updateOrderStatus(orderId, 'Ready');
                                 if (!context.mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
                                       success
                                           ? 'Order marked as Ready for Pickup!'
-                                          : 'Failed to update order.',
+                                          : orderProvider.error ??
+                                                'Failed to update order.',
                                     ),
                                     backgroundColor: success
                                         ? Colors.green
@@ -648,14 +648,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       orderMap,
                                     );
                                     final success = await orderProvider
-                                        .updateOrderStatus(orderId, 'COMPLETED');
+                                        .updateOrderStatus(orderId, 'Completed');
                                     if (!context.mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
                                           success
                                               ? 'Order completed!'
-                                              : 'Failed to update order.',
+                                              : orderProvider.error ??
+                                                    'Failed to update order.',
                                         ),
                                         backgroundColor: success
                                             ? Colors.green

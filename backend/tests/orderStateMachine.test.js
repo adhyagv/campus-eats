@@ -2,13 +2,11 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { ObjectId } = require("mongodb");
 const {
-  ORDER_STATUS,
   canTransition,
   validateTransition,
 } = require("../src/modules/orders/orderStateMachine");
 const { requireRole } = require("../src/middleware/role.middleware");
 const { ROLES } = require("../src/common/constants/roles");
-const orderService = require("../src/modules/orders/order.service");
 const mongodbPath = require.resolve("../src/config/mongodb");
 const orderServicePath = require.resolve("../src/modules/orders/order.service");
 
@@ -27,36 +25,37 @@ function makeResponse() {
   };
 }
 
-test("order state machine validates normal kitchen flow PENDING -> CONFIRMED -> PREPARING -> READY -> COMPLETED", () => {
-  assert.equal(canTransition("PENDING", "CONFIRMED"), true);
-  assert.equal(canTransition("CONFIRMED", "PREPARING"), true);
-  assert.equal(canTransition("PREPARING", "READY"), true);
-  assert.equal(canTransition("READY", "COMPLETED"), true);
+test("order state machine validates Pending -> Confirmed -> Preparing -> Ready -> Completed", () => {
+  assert.equal(canTransition("Pending", "Confirmed"), true);
+  assert.equal(canTransition("Confirmed", "Preparing"), true);
+  assert.equal(canTransition("Preparing", "Ready"), true);
+  assert.equal(canTransition("Ready", "Completed"), true);
+  assert.equal(canTransition("CONFIRMED", "Preparing"), true);
 
   // Completed cannot transition further
-  assert.equal(canTransition("COMPLETED", "READY"), false);
-  assert.equal(canTransition("COMPLETED", "CANCELLED"), false);
+  assert.equal(canTransition("Completed", "Ready"), false);
+  assert.equal(canTransition("Completed", "Cancelled"), false);
 });
 
 test("invalid order status transitions throw 400 error", () => {
   assert.throws(
-    () => validateTransition("PENDING", "COMPLETED"),
+    () => validateTransition("Pending", "Completed"),
     (err) => err.statusCode === 400 && err.message.includes("Invalid order status transition")
   );
   assert.throws(
-    () => validateTransition("CONFIRMED", "READY"),
+    () => validateTransition("Confirmed", "Ready"),
     (err) => err.statusCode === 400
   );
   assert.throws(
-    () => validateTransition("PREPARING", "COMPLETED"),
+    () => validateTransition("Preparing", "Completed"),
     (err) => err.statusCode === 400
   );
   assert.throws(
-    () => validateTransition("COMPLETED", "PREPARING"),
+    () => validateTransition("Completed", "Preparing"),
     (err) => err.statusCode === 400
   );
   assert.throws(
-    () => validateTransition("CONFIRMED", "Accepted"),
+    () => validateTransition("Confirmed", "Accepted"),
     (err) => err.statusCode === 400
   );
 });
@@ -98,64 +97,127 @@ test("authenticated Admin and Kitchen can access staff orders endpoint", () => {
   }
 });
 
-test("order status update preserves MongoDB ObjectId as string and executes allowed transitions", async () => {
+function loadOrderService({ initialStatus = "Confirmed", cafeteria = "Cafe PESU" } = {}) {
   const testOrderId = new ObjectId();
-  let storedStatus = "CONFIRMED";
-  let updatedDoc = null;
-
+  let storedStatus = initialStatus;
+  let updateCount = 0;
   const mockOrdersCollection = {
-    findOne: async ({ _id }) => {
-      if (_id.equals(testOrderId)) {
-        return {
-          _id: testOrderId,
-          userId: "student-uid-123",
-          status: storedStatus,
-          items: [{ name: "Dosa", price: 60, quantity: 1 }],
-          total: 60,
-        };
-      }
-      return null;
-    },
+    findOne: async ({ _id }) =>
+      _id.equals(testOrderId)
+        ? {
+            _id: testOrderId,
+            userId: "student-uid-123",
+            status: storedStatus,
+            cafeteria,
+            items: [{ name: "Dosa", price: 60, quantity: 1 }],
+            total: 60,
+          }
+        : null,
     findOneAndUpdate: async ({ _id }, { $set }) => {
-      if (_id.equals(testOrderId)) {
-        storedStatus = $set.status;
-        updatedDoc = {
-          _id: testOrderId,
-          userId: "student-uid-123",
-          status: storedStatus,
-          updatedAt: $set.updatedAt,
-        };
-        return updatedDoc;
-      }
-      return null;
+      if (!_id.equals(testOrderId)) return null;
+      storedStatus = $set.status;
+      updateCount += 1;
+      return {
+        _id: testOrderId,
+        userId: "student-uid-123",
+        status: storedStatus,
+        cafeteria,
+        updatedAt: $set.updatedAt,
+      };
     },
   };
 
   require.cache[mongodbPath] = {
     exports: {
       getDb: () => ({
-        collection: (name) => {
-          if (name === "orders") return mockOrdersCollection;
-          return {};
-        },
+        collection: (name) =>
+          name === "orders" ? mockOrdersCollection : {},
       }),
     },
   };
   delete require.cache[orderServicePath];
-  const service = require(orderServicePath);
+  return {
+    orderId: testOrderId.toString(),
+    service: require(orderServicePath),
+    updateCount: () => updateCount,
+  };
+}
 
-  // Transition CONFIRMED -> PREPARING
-  const result = await service.updateOrderStatus(testOrderId.toString(), "PREPARING");
-  assert.equal(result.status, "PREPARING");
-  assert.equal(result._id.toString(), testOrderId.toString());
+const pesuKitchen = {
+  uid: "kitchen-uid",
+  role: ROLES.KITCHEN,
+  status: "ACTIVE",
+  cafeteria: "PESU Cafe",
+  cafeteriaId: "pesucafe",
+};
 
-  // Transition PREPARING -> READY
-  const result2 = await service.updateOrderStatus(testOrderId.toString(), "READY");
-  assert.equal(result2.status, "READY");
+test("status update persists Confirmed -> Preparing -> Ready -> Completed", async () => {
+  const { orderId, service } = loadOrderService();
 
-  // Invalid transition READY -> PREPARING must reject
+  const preparing = await service.updateOrderStatus(orderId, "Preparing", pesuKitchen);
+  assert.equal(preparing.status, "Preparing");
+  assert.equal(preparing._id.toString(), orderId);
+
+  const ready = await service.updateOrderStatus(orderId, "Ready", pesuKitchen);
+  assert.equal(ready.status, "Ready");
+
+  const completed = await service.updateOrderStatus(orderId, "Completed", pesuKitchen);
+  assert.equal(completed.status, "Completed");
+});
+
+test("invalid and terminal status transitions are rejected", async () => {
+  const { orderId, service } = loadOrderService({ initialStatus: "Preparing" });
+
   await assert.rejects(
-    service.updateOrderStatus(testOrderId.toString(), "PREPARING"),
-    (err) => err.statusCode === 400
+    service.updateOrderStatus(orderId, "Ready for Pickup", pesuKitchen),
+    (error) => error.statusCode === 400
   );
+  await assert.rejects(
+    service.updateOrderStatus(orderId, "Completed", pesuKitchen),
+    (error) => error.statusCode === 400
+  );
+});
+
+test("invalid and nonexistent MongoDB order IDs return client errors", async () => {
+  const { service } = loadOrderService();
+
+  await assert.rejects(
+    service.updateOrderStatus("not-an-object-id", "Preparing", pesuKitchen),
+    (error) => error.statusCode === 400
+  );
+  await assert.rejects(
+    service.updateOrderStatus(new ObjectId().toString(), "Preparing", pesuKitchen),
+    (error) => error.statusCode === 404
+  );
+});
+
+test("staff cannot update orders assigned to a different cafeteria", async () => {
+  const { orderId, service, updateCount } = loadOrderService({
+    cafeteria: "Bengaluru Cafe",
+  });
+
+  await assert.rejects(
+    service.updateOrderStatus(orderId, "Preparing", pesuKitchen),
+    (error) => error.statusCode === 403
+  );
+  assert.equal(updateCount(), 0);
+});
+
+test("order status endpoint validates canonical status values", () => {
+  const { validateOrderStatus } = require("../src/modules/orders/order.validator");
+  const req = { body: { status: "Ready" } };
+  let nextCalled = false;
+  validateOrderStatus(req, makeResponse(), () => {
+    nextCalled = true;
+  });
+  assert.equal(nextCalled, true);
+  assert.equal(req.body.status, "Ready");
+
+  for (const status of ["Ready for Pickup", "Unknown", "Pending"]) {
+    const response = makeResponse();
+    validateOrderStatus({ body: { status } }, response, () => {
+      assert.fail("invalid update status must not proceed");
+    });
+    assert.equal(response.statusCode, 400);
+  }
 });

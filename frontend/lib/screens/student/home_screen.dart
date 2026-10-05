@@ -170,10 +170,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void openMenu() {
+  void openMenu({String cafeteria = 'Bengaluru Cafe'}) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const MenuScreen()),
+      MaterialPageRoute(
+        builder: (context) => MenuScreen(initialCafeteria: cafeteria),
+      ),
     );
   }
 
@@ -873,7 +875,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget cafeCard(String title, String subtitle, String emoji) {
     return GestureDetector(
-      onTap: openMenu,
+      onTap: () => openMenu(cafeteria: title),
 
       child: Container(
         width: 260,

@@ -17,7 +17,7 @@ function calculateEta({
     const itemAdjustment = Math.max(0, itemCount - 1) * 2;
   
     const etaMinutes =
-      status === "COMPLETED" || status === "CANCELLED"
+      ["COMPLETED", "CANCELLED"].includes(status?.toUpperCase())
         ? 0
         : Math.max(
             1,

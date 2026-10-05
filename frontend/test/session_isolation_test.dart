@@ -629,13 +629,13 @@ void main() {
     });
 
     test('19. OrderProvider status mappings match backend state machine', () {
-      // Backend canonical uppercase values
-      expect(OrderProvider.toBackendStatus('Pending'), 'PENDING');
-      expect(OrderProvider.toBackendStatus('Confirmed'), 'CONFIRMED');
-      expect(OrderProvider.toBackendStatus('Preparing'), 'PREPARING');
-      expect(OrderProvider.toBackendStatus('Ready'), 'READY');
-      expect(OrderProvider.toBackendStatus('Completed'), 'COMPLETED');
-      expect(OrderProvider.toBackendStatus('Cancelled'), 'CANCELLED');
+      // API and MongoDB use the canonical display values.
+      expect(OrderProvider.toBackendStatus('Pending'), 'Pending');
+      expect(OrderProvider.toBackendStatus('Confirmed'), 'Confirmed');
+      expect(OrderProvider.toBackendStatus('Preparing'), 'Preparing');
+      expect(OrderProvider.toBackendStatus('Ready'), 'Ready');
+      expect(OrderProvider.toBackendStatus('Completed'), 'Completed');
+      expect(OrderProvider.toBackendStatus('Cancelled'), 'Cancelled');
 
       // Normalization from backend responses
       expect(OrderProvider.normalizeStatus('PENDING'), 'Pending');
@@ -668,59 +668,71 @@ void main() {
       },
     );
 
-    test('21. Cart items and total are preserved during checkout preparation and review', () async {
-      final cart = CartProvider();
-      await cart.switchSession('student:student-preservation-test');
+    test(
+      '21. Cart items and total are preserved during checkout preparation and review',
+      () async {
+        final cart = CartProvider();
+        await cart.switchSession('student:student-preservation-test');
 
-      // Add item A and item B
-      cart.addItem(CartItem(name: 'Masala Dosa', image: '', price: 60, quantity: 2));
-      cart.addItem(CartItem(name: 'Filter Coffee', image: '', price: 25, quantity: 1));
+        // Add item A and item B
+        cart.addItem(
+          CartItem(name: 'Masala Dosa', image: '', price: 60, quantity: 2),
+        );
+        cart.addItem(
+          CartItem(name: 'Filter Coffee', image: '', price: 25, quantity: 1),
+        );
 
-      expect(cart.items, hasLength(2));
-      expect(cart.itemCount, 3);
-      expect(cart.totalAmount, 145.0);
+        expect(cart.items, hasLength(2));
+        expect(cart.itemCount, 3);
+        expect(cart.totalAmount, 145.0);
 
-      // Verify cart items and total are unchanged
-      expect(cart.items, hasLength(2));
-      expect(cart.items[0].name, 'Masala Dosa');
-      expect(cart.items[0].quantity, 2);
-      expect(cart.items[1].name, 'Filter Coffee');
-      expect(cart.items[1].quantity, 1);
-      expect(cart.totalAmount, 145.0);
-    });
+        // Verify cart items and total are unchanged
+        expect(cart.items, hasLength(2));
+        expect(cart.items[0].name, 'Masala Dosa');
+        expect(cart.items[0].quantity, 2);
+        expect(cart.items[1].name, 'Filter Coffee');
+        expect(cart.items[1].quantity, 1);
+        expect(cart.totalAmount, 145.0);
+      },
+    );
 
-    test('22. Cart items remain intact after payment cancellation and clear only on confirmed payment', () async {
-      final cart = CartProvider();
-      final orderProvider = OrderProvider();
-      await cart.switchSession('student:student-pay-test');
+    test(
+      '22. Cart items remain intact after payment cancellation and clear only on confirmed payment',
+      () async {
+        final cart = CartProvider();
+        final orderProvider = OrderProvider();
+        await cart.switchSession('student:student-pay-test');
 
-      cart.addItem(CartItem(name: 'Veg Biryani', image: '', price: 120, quantity: 1));
-      expect(cart.items, hasLength(1));
-      expect(cart.totalAmount, 120.0);
+        cart.addItem(
+          CartItem(name: 'Veg Biryani', image: '', price: 120, quantity: 1),
+        );
+        expect(cart.items, hasLength(1));
+        expect(cart.totalAmount, 120.0);
 
-      // Simulation 1: User cancels payment in modal
-      // Cart should remain completely intact
-      expect(cart.items, hasLength(1));
-      expect(cart.totalAmount, 120.0);
+        // Simulation 1: User cancels payment in modal
+        // Cart should remain completely intact
+        expect(cart.items, hasLength(1));
+        expect(cart.totalAmount, 120.0);
 
-      // Simulation 2: Confirmed payment and order creation
-      final simulatedConfirmedOrder = {
-        '_id': 'order_mongo_id_999',
-        'items': [
-          {'name': 'Veg Biryani', 'price': 120, 'quantity': 1}
-        ],
-        'total': 120.0,
-        'status': 'PENDING',
-        'paymentStatus': 'Paid',
-      };
+        // Simulation 2: Confirmed payment and order creation
+        final simulatedConfirmedOrder = {
+          '_id': 'order_mongo_id_999',
+          'items': [
+            {'name': 'Veg Biryani', 'price': 120, 'quantity': 1},
+          ],
+          'total': 120.0,
+          'status': 'PENDING',
+          'paymentStatus': 'Paid',
+        };
 
-      orderProvider.addOrder(simulatedConfirmedOrder);
-      cart.clearCart();
+        orderProvider.addOrder(simulatedConfirmedOrder);
+        cart.clearCart();
 
-      expect(orderProvider.orders, hasLength(1));
-      expect(orderProvider.orders.first['_id'], 'order_mongo_id_999');
-      expect(cart.items, isEmpty);
-      expect(cart.totalAmount, 0.0);
-    });
+        expect(orderProvider.orders, hasLength(1));
+        expect(orderProvider.orders.first['_id'], 'order_mongo_id_999');
+        expect(cart.items, isEmpty);
+        expect(cart.totalAmount, 0.0);
+      },
+    );
   });
 }

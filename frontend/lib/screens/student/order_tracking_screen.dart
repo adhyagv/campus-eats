@@ -98,10 +98,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (isReleased) return "Released";
     if (isCollected) return "Order Collected";
     final upper = status.trim().toUpperCase();
-    if (upper == 'PREPARING') return "Preparing Food";
-    if (upper == 'READY') return "Ready for Pickup";
-    if (upper == 'COMPLETED' || upper == 'COLLECTED') return "Order Collected";
-    return "Order Confirmed";
+    if (upper == 'PREPARING') return "Preparing";
+    if (upper == 'READY') return "Ready";
+    if (upper == 'COMPLETED' || upper == 'COLLECTED') return "Completed";
+    return "Confirmed";
   }
 
   @override
@@ -608,7 +608,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 children: [
                   trackingStep(
                     icon: Icons.check_circle,
-                    title: "Order Confirmed",
+                    title: "Confirmed",
                     subtitle: "Your order has been received.",
                     active: isConfirmed,
                     color: Colors.green,
@@ -616,7 +616,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   trackingLine(active: isPreparing),
                   trackingStep(
                     icon: Icons.restaurant,
-                    title: "Preparing Food",
+                    title: "Preparing",
                     subtitle: "Kitchen staff are preparing your food.",
                     active: isPreparing,
                     color: Colors.orange,
@@ -624,7 +624,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   trackingLine(active: isReady),
                   trackingStep(
                     icon: Icons.notifications_active,
-                    title: "Ready for Pickup",
+                    title: "Ready",
                     subtitle: "Your food is ready at the cafeteria.",
                     active: isReady,
                     color: Colors.blue,
@@ -632,7 +632,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   trackingLine(active: isCompleted),
                   trackingStep(
                     icon: Icons.check_circle,
-                    title: "Order Collected",
+                    title: "Completed",
                     subtitle: "Enjoy your meal! ❤️",
                     active: isCompleted,
                     color: Colors.green,

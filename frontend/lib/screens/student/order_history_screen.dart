@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +18,7 @@ class OrderHistoryScreen extends StatefulWidget {
 
 class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   final Map<String, Map<String, dynamic>> _userReviews = {};
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -24,6 +27,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       context.read<OrderProvider>().loadOrders(studentOnly: true);
       _loadReviews();
     });
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted && !context.read<OrderProvider>().isLoading) {
+        context.read<OrderProvider>().loadOrders(studentOnly: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadReviews() async {
@@ -90,12 +104,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         ),
       );
     } else {
-      body = ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: orders.length,
-        itemBuilder: (context, index) {
-          return _buildOrderCard(context, orders[index]);
-        },
+      body = RefreshIndicator(
+        onRefresh: () => orderProvider.loadOrders(studentOnly: true),
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          itemCount: orders.length,
+          itemBuilder: (context, index) {
+            return _buildOrderCard(context, orders[index]);
+          },
+        ),
       );
     }
 
@@ -143,7 +161,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     final order = OrderModel.fromMap(orderData);
     final isScheduled = order.isScheduled;
     final isNoShow = order.pickupStatus == 'NO_SHOW' || order.status == 'NO_SHOW';
-    final isReady = order.status == 'Ready' || order.pickupStatus == 'READY';
+    final isReady =
+        OrderProvider.normalizeStatus(order.status) == 'Ready' ||
+        order.pickupStatus == 'READY';
     final orderIdStr = order.id?.toString() ?? '';
     final reviewData = _userReviews[orderIdStr];
     final bool isReviewed = reviewData != null;

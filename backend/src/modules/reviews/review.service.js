@@ -126,7 +126,7 @@ async function hasPurchasedMenuItem(userId, menuItemId) {
 
   const order = await getOrdersCollection().findOne({
     userId,
-    status: { $ne: "CANCELLED" },
+    status: { $nin: ["CANCELLED", "Cancelled"] },
     "items.menuItemId": menuObjectId,
   });
 
@@ -183,12 +183,12 @@ async function createOrderReview({ userId, userRole, orderId, rating, review }) 
   const orderStatus = String(order.status || "").toUpperCase();
   const pickupStatus = String(order.pickupStatus || "").toUpperCase();
 
-  if (orderStatus === "CANCELLED") {
+  if (orderStatus?.toUpperCase() === "CANCELLED") {
     throw createAppError("Cancelled orders cannot be reviewed", 400);
   }
 
   const isCollected =
-    orderStatus === "COMPLETED" ||
+    orderStatus?.toUpperCase() === "COMPLETED" ||
     orderStatus === "COLLECTED" ||
     pickupStatus === "COLLECTED";
 
